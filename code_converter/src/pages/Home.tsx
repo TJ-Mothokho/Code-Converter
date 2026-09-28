@@ -344,6 +344,27 @@ function pascalCase(value: string) {
     .join("") || "Value";
 }
 
+function camelCase(value: string) {
+  const parts = value.split(/[^a-zA-Z0-9]+/).filter(Boolean);
+  if (!parts.length) return "value";
+  return parts[0].toLowerCase() + parts.slice(1).map((part) => pascalCase(part)).join("");
+}
+
+function snakeCase(value: string) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase() || "value";
+}
+
+function definitionFieldName(key: string, language: Language) {
+  if (language === "csharp") return pascalCase(key);
+  if (language === "java") return camelCase(key);
+  if (language === "python") return snakeCase(key);
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? key : camelCase(key);
+}
+
 function serializeJson(value: Value) {
   return JSON.stringify(value, null, 2);
 }
@@ -449,15 +470,23 @@ function collectDefinitions(value: Value, name: string, definitions: DefinitionN
       collectDefinitions(item, nestedName, definitions);
       fields.push({ key, value: item, type: nestedName });
     } else if (Array.isArray(item)) {
-      const sample: Value = item.find((entry) => entry !== null && entry !== undefined) ?? null;
-      let itemType = "unknown";
-      if (isObject(sample)) {
+      const values = item.filter((entry) => entry !== null);
+      const sample = values[0] ?? null;
+      let itemType = "object";
+      const valueTypes = new Set(values.map((entry) => {
+        if (isObject(entry)) return "object";
+        if (typeof entry === "number") return Number.isInteger(entry) ? "int" : "double";
+        if (typeof entry === "string") return "string";
+        if (typeof entry === "boolean") return "bool";
+        return "object";
+      }));
+      if (isObject(sample) && valueTypes.size === 1) {
         const nestedName = pascalCase(key);
         collectDefinitions(sample, nestedName, definitions);
         itemType = nestedName;
-      } else if (typeof sample === "string") itemType = "string";
-      else if (typeof sample === "number") itemType = Number.isInteger(sample) ? "int" : "double";
-      else if (typeof sample === "boolean") itemType = "bool";
+      } else if (valueTypes.size === 1) {
+        itemType = values.length ? [...valueTypes][0] : "object";
+      }
       fields.push({ key, value: item, type: `${itemType}[]` });
     } else if (typeof item === "string") fields.push({ key, value: item, type: "string" });
     else if (typeof item === "number") fields.push({ key, value: item, type: Number.isInteger(item) ? "int" : "double" });
@@ -498,11 +527,11 @@ function serializeDefinitions(value: Value, language: Language) {
   const definitions: DefinitionNode[] = [];
   collectDefinitions(value, "Person", definitions);
   if (language === "json") return "JSON has no native class or type declarations. Choose a typed target language for definitions.";
-  if (language === "csharp") return definitions.map((definition) => `public class ${definition.name}\n{\n${definition.fields.map((field) => `    public ${definitionType(field, language)} ${pascalCase(field.key)} { get; set; }`).join("\n")}\n}`).join("\n\n");
-  if (language === "java") return definitions.map((definition) => `public class ${definition.name}\n{\n${definition.fields.map((field) => `    private ${definitionType(field, language)} ${pascalCase(field.key)};`).join("\n")}\n}`).join("\n\n");
-  if (language === "python") return definitions.map((definition) => `class ${definition.name}:\n${definition.fields.map((field) => `    ${pascalCase(field.key)}: ${definitionType(field, language)}`).join("\n")}`).join("\n\n");
-  if (language === "javascript") return definitions.map((definition) => `/**\n * @typedef {Object} ${definition.name}\n${definition.fields.map((field) => ` * @property {${definitionType(field, language)}} ${pascalCase(field.key)}`).join("\n")}\n */`).reverse().join("\n\n");
-  return definitions.map((definition) => `interface ${definition.name} {\n${definition.fields.map((field) => `    ${pascalCase(field.key)}: ${definitionType(field, language)};`).join("\n")}\n}`).join("\n\n");
+  if (language === "csharp") return definitions.map((definition) => `public class ${definition.name}\n{\n${definition.fields.map((field) => `    public ${definitionType(field, language)} ${definitionFieldName(field.key, language)} { get; set; }`).join("\n")}\n}`).join("\n\n");
+  if (language === "java") return definitions.map((definition) => `public class ${definition.name}\n{\n${definition.fields.map((field) => `    private ${definitionType(field, language)} ${definitionFieldName(field.key, language)};`).join("\n")}\n}`).join("\n\n");
+  if (language === "python") return definitions.map((definition) => `class ${definition.name}:\n${definition.fields.map((field) => `    ${definitionFieldName(field.key, language)}: ${definitionType(field, language)}`).join("\n")}`).join("\n\n");
+  if (language === "javascript") return definitions.map((definition) => `/**\n * @typedef {Object} ${definition.name}\n${definition.fields.map((field) => ` * @property {${definitionType(field, language)}} ${definitionFieldName(field.key, language)}`).join("\n")}\n */`).reverse().join("\n\n");
+  return definitions.map((definition) => `interface ${definition.name} {\n${definition.fields.map((field) => `    ${definitionFieldName(field.key, language)}: ${definitionType(field, language)};`).join("\n")}\n}`).join("\n\n");
 }
 
 function convert(source: string, from: Language, to: Language, mode: ConversionMode) {
@@ -547,6 +576,7 @@ export default function Home() {
   const [source, setSource] = useState(sampleJson);
   const [mode, setMode] = useState<ConversionMode>("literal");
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const result = useMemo(() => convert(source, from, to, mode), [source, from, to, mode]);
   const sourceLanguage = getLanguage(from);
   const targetLanguage = getLanguage(to);
@@ -558,21 +588,38 @@ export default function Home() {
     setTo(from);
     setSource(result.output || source);
     setCopied(false);
+    setCopyError(false);
   }
 
   function handleModeChange(nextMode: ConversionMode) {
     setMode(nextMode);
     setCopied(false);
+    setCopyError(false);
   }
 
   async function handleCopy() {
     if (!result.output) return;
+    setCopyError(false);
     try {
-      await navigator.clipboard.writeText(result.output);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(result.output);
+      } else {
+        const helper = document.createElement("textarea");
+        helper.value = result.output;
+        helper.setAttribute("readonly", "");
+        helper.style.position = "fixed";
+        helper.style.opacity = "0";
+        document.body.appendChild(helper);
+        helper.select();
+        const copiedWithFallback = document.execCommand("copy");
+        helper.remove();
+        if (!copiedWithFallback) throw new Error("Copy command was rejected.");
+      }
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
       setCopied(false);
+      setCopyError(true);
     }
   }
 
@@ -581,6 +628,7 @@ export default function Home() {
     setTo(language === "json" ? "python" : "json");
     setSource(language === "json" ? sampleJson : serialize(parseSource(sampleJson, "json"), language));
     setCopied(false);
+    setCopyError(false);
   }
 
   return (
@@ -593,7 +641,7 @@ export default function Home() {
           <span className="brand-name">syntax<span>/</span>lab</span>
         </div>
         <div className="topbar-meta">
-          <span className="local-pill"><span className="pulse-dot" /> Runs locally in your browser</span>
+          <span className="local-pill"><span className="pulse-dot" /> Conversion runs locally · Fonts load from Google</span>
           <span className="version-label">v1.0</span>
         </div>
       </header>
@@ -612,7 +660,7 @@ export default function Home() {
               <button className={mode === "literal" ? "active" : ""} type="button" onClick={() => handleModeChange("literal")}><Braces size={14} /> Literal</button>
               <button className={mode === "definition" ? "active" : ""} type="button" onClick={() => handleModeChange("definition")}><FileCode2 size={14} /> Definition</button>
             </div>
-            <button className="text-button" type="button" onClick={() => { setSource(""); setCopied(false); }}><Eraser size={15} /> Clear</button>
+            <button className="text-button" type="button" onClick={() => { setSource(""); setCopied(false); setCopyError(false); }}><Eraser size={15} /> Clear</button>
             <button className="swap-button" type="button" onClick={handleSwap} aria-label="Swap source and target languages"><ArrowRightLeft size={15} /> Swap</button>
           </div>
         </div>
@@ -625,7 +673,7 @@ export default function Home() {
             </div>
             <div className="code-surface input-surface">
               <LineNumbers value={source} />
-              <textarea value={source} onChange={(event) => { setSource(event.target.value); setCopied(false); }} spellCheck={false} aria-label="Source code" placeholder="Paste your code here..." />
+              <textarea value={source} onChange={(event) => { setSource(event.target.value); setCopied(false); setCopyError(false); }} spellCheck={false} aria-label="Source code" placeholder="Paste your code here..." />
             </div>
             <div className="editor-footer"><span><FileCode2 size={14} /> {inputLines} lines</span><span className="format-hint">Accepts {sourceLanguage.label}</span></div>
           </article>
@@ -635,7 +683,7 @@ export default function Home() {
           <article className="editor-card output-card">
             <div className="editor-card-header">
               <div className="panel-heading"><span className="panel-index output-index">02</span><div><p className="panel-label">OUTPUT</p><LanguageSelect value={to} onChange={(value) => { setTo(value); setCopied(false); }} label="Target language" /></div></div>
-              <button className={`copy-button ${copied ? "is-copied" : ""}`} type="button" onClick={handleCopy} disabled={!result.output}>{copied ? <><Check size={15} /> Copied</> : <><Clipboard size={15} /> Copy output</>}</button>
+            <button className={`copy-button ${copied ? "is-copied" : ""}`} type="button" onClick={handleCopy} disabled={!result.output}>{copied ? <><Check size={15} /> Copied</> : <><Clipboard size={15} /> {copyError ? "Copy failed" : "Copy output"}</>}</button>
             </div>
             <div className={`code-surface output-surface ${result.error ? "has-error" : ""}`}>
               {result.error ? <div className="error-state"><div className="error-icon">!</div><p>We couldn't parse that yet.</p><span>{result.error}</span><small>Try a complete {sourceLanguage.label} object or load a sample below.</small></div> : result.output ? <><div className="line-numbers output-lines" aria-hidden="true">{Array.from({ length: outputLines }, (_, index) => <span key={index}>{String(index + 1).padStart(2, "0")}</span>)}</div><pre aria-label="Converted code"><code>{result.output}</code></pre></> : <div className="empty-state"><div className="empty-glyph">↗</div><p>Your converted code will appear here.</p><span>Choose a target language, then paste code on the left.</span></div>}
