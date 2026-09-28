@@ -12,9 +12,9 @@ import {
   Sparkles,
 } from "lucide-react";
 
-type Language = "json" | "python" | "java" | "csharp" | "javascript" | "typescript";
+export type Language = "json" | "python" | "java" | "csharp" | "javascript" | "typescript";
 type Value = null | boolean | number | string | Value[] | { [key: string]: Value };
-type ConversionMode = "literal" | "definition";
+export type ConversionMode = "literal" | "definition";
 
 type LanguageOption = {
   id: Language;
@@ -534,7 +534,9 @@ function serializeDefinitions(value: Value, language: Language) {
   return definitions.map((definition) => `interface ${definition.name} {\n${definition.fields.map((field) => `    ${definitionFieldName(field.key, language)}: ${definitionType(field, language)};`).join("\n")}\n}`).join("\n\n");
 }
 
-function convert(source: string, from: Language, to: Language, mode: ConversionMode) {
+// The conversion engine is exported for unit tests; the UI itself remains the default component export.
+// eslint-disable-next-line react-refresh/only-export-components
+export function convert(source: string, from: Language, to: Language, mode: ConversionMode) {
   if (!source.trim()) return { output: "", error: "" };
   try {
     const value = parseSource(source, from);
