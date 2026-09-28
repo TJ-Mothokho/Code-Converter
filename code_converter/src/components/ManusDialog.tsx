@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "./ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "./ui/dialog";
 
 interface ManusDialogProps {
   title?: string;
@@ -30,6 +30,7 @@ export function ManusDialog({
 
   useEffect(() => {
     if (!onOpenChange) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInternalOpen(open);
     }
   }, [open, onOpenChange]);
