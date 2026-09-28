@@ -54,10 +54,103 @@ function getLanguage(id: Language) {
 }
 
 function stripComments(source: string) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|\s)\/\/.*$/gm, "$1")
-    .replace(/(^|\s)#.*$/gm, "$1");
+  let output = "";
+  let quote = "";
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const next = source[index + 1];
+
+    if (lineComment) {
+      if (character === "\n") {
+        lineComment = false;
+        output += character;
+      }
+      continue;
+    }
+    if (blockComment) {
+      if (character === "*" && next === "/") {
+        blockComment = false;
+        index += 1;
+      } else if (character === "\n") {
+        output += character;
+      }
+      continue;
+    }
+    if (quote) {
+      output += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = "";
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      output += character;
+    } else if (character === "/" && next === "/") {
+      lineComment = true;
+      index += 1;
+    } else if (character === "/" && next === "*") {
+      blockComment = true;
+      index += 1;
+    } else if (character === "#") {
+      lineComment = true;
+    } else {
+      output += character;
+    }
+  }
+
+  return output;
+}
+
+function normalizeSingleQuotedStrings(source: string) {
+  let output = "";
+  let doubleQuoted = false;
+  let escaped = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (doubleQuoted) {
+      output += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') doubleQuoted = false;
+      continue;
+    }
+    if (character === '"') {
+      doubleQuoted = true;
+      output += character;
+      continue;
+    }
+    if (character !== "'") {
+      output += character;
+      continue;
+    }
+
+    let value = "";
+    let closed = false;
+    for (index += 1; index < source.length; index += 1) {
+      const part = source[index];
+      if (part === "\\") {
+        const escapedPart = source[index + 1];
+        if (escapedPart === undefined) break;
+        index += 1;
+        value += escapedPart === "n" ? "\n" : escapedPart === "r" ? "\r" : escapedPart === "t" ? "\t" : escapedPart;
+      } else if (part === "'") {
+        closed = true;
+        break;
+      } else {
+        value += part;
+      }
+    }
+    if (!closed) throw new Error("Unterminated single-quoted string.");
+    output += JSON.stringify(value);
+  }
+
+  return output;
 }
 
 function findMatching(source: string, start: number, open: string, close: string) {
@@ -134,7 +227,7 @@ function parseJsonLike(source: string, language: Language): Value {
   normalized = normalized.replace(/,\s*([}\]])/g, "$1");
   normalized = quoteBareKeys(normalized);
   if (language === "python" || language === "javascript" || language === "typescript") {
-    normalized = normalized.replace(/'/g, '"');
+    normalized = normalizeSingleQuotedStrings(normalized);
   }
   return JSON.parse(normalized) as Value;
 }
@@ -369,7 +462,7 @@ function collectDefinitions(value: Value, name: string, definitions: DefinitionN
     } else if (typeof item === "string") fields.push({ key, value: item, type: "string" });
     else if (typeof item === "number") fields.push({ key, value: item, type: Number.isInteger(item) ? "int" : "double" });
     else if (typeof item === "boolean") fields.push({ key, value: item, type: "bool" });
-    else fields.push({ key, value: item, type: "string?" });
+    else fields.push({ key, value: item, type: "object" });
   }
   definitions.push({ name, fields });
 }
@@ -379,7 +472,7 @@ function definitionType(field: DefinitionField, language: Language) {
   const type = field.type;
   if (language === "csharp") {
     const mapped = type === "int" ? "int" : type === "double" ? "double" : type === "bool" ? "bool" : type === "string" ? "string" : type;
-    return nullable ? "string?" : mapped;
+    return nullable ? `${mapped}?` : mapped;
   }
   if (language === "java") {
     const mapped = type === "int" ? "int" : type === "double" ? "double" : type === "bool" ? "boolean" : type === "string" ? "String" : type;
@@ -508,7 +601,7 @@ export default function Home() {
       <section className="intro-section">
         <div className="eyebrow"><Sparkles size={14} /> DEVELOPER TOOLKIT <span className="eyebrow-rule" /></div>
         <h1>Translate code.<br /><em>Keep the logic.</em></h1>
-        <p className="intro-copy">Move between the languages you use every day.<br />Paste once, shape the output, ship faster.</p>
+        <p className="intro-copy">Convert JSON-like object and array data across six languages.<br />Paste once, shape the output, ship faster — full programs are not supported yet.</p>
       </section>
 
       <section className="workspace" aria-label="Code converter">
