@@ -145,6 +145,8 @@ describe("conversion engine", () => {
     expect(python).not.toContain("FirstName:");
 
     const typescript = outputOf(source, "json", "typescript", "definition");
+    expect(typescript).toContain("interface Data {");
+    expect(typescript).not.toContain("Person");
     expect(typescript).toContain("first_name: string;");
     expect(typescript).toContain("postalCode: number;");
   });

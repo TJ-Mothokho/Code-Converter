@@ -525,7 +525,7 @@ function definitionType(field: DefinitionField, language: Language) {
 function serializeDefinitions(value: Value, language: Language) {
   if (!isObject(value)) return "Definition mode expects an object at the root.";
   const definitions: DefinitionNode[] = [];
-  collectDefinitions(value, "Person", definitions);
+  collectDefinitions(value, "Data", definitions);
   if (language === "json") return "JSON has no native class or type declarations. Choose a typed target language for definitions.";
   if (language === "csharp") return definitions.map((definition) => `public class ${definition.name}\n{\n${definition.fields.map((field) => `    public ${definitionType(field, language)} ${definitionFieldName(field.key, language)} { get; set; }`).join("\n")}\n}`).join("\n\n");
   if (language === "java") return definitions.map((definition) => `public class ${definition.name}\n{\n${definition.fields.map((field) => `    private ${definitionType(field, language)} ${definitionFieldName(field.key, language)};`).join("\n")}\n}`).join("\n\n");
