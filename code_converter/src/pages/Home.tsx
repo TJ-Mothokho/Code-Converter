@@ -175,7 +175,7 @@ function parseCSharpObject(body: string): Value {
 }
 
 function parseCSharp(source: string): Value {
-  const objectStart = source.indexOf("new {");
+  const objectStart = source.search(/\bnew\s*\{/i);
   if (objectStart < 0) throw new Error("Could not find a C# object initializer.");
   const open = source.indexOf("{", objectStart);
   const close = findMatching(source, open, "{", "}");
